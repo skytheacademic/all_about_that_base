@@ -18,3 +18,12 @@ d = readRDS("./data/Geo-PKO-v-2-1.RDS") %>%
             nameoftcc_17, notroopspertcc_17, tcc1, tcc2, tcc3, tcc4, tcc5, tcc6, tcc7, tcc8, tcc9, tcc10, tcc11,
             tcc12, tcc13, tcc14, tcc15, tcc16, tcc17, jmco, comments, unmo.coding.quality,cow_code, adm1.name, 
             adm1.id, prioid))
+
+
+
+
+
+
+
+#### Export Data ####
+saveRDS(d, "./data/kunkel_final.RDS")
