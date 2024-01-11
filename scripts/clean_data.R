@@ -7,6 +7,7 @@
 options(max.print=1000000)
 library(tidyverse); library(janitor); library(geosphere); library(sf)
 
+rm(list = ls())
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set to source file location
 setwd("../") # back out to main folder
 
@@ -14,7 +15,7 @@ setwd("../") # back out to main folder
 set.seed(8675309) # hey jenny
 
 ### read in data, filter out data not relevant to project
-d = readRDS("./data/Geo-PKO-v-2-1.RDS") %>%
+geopko = readRDS("./data/Geo-PKO-v-2-1.RDS") %>%
   select(-c(source, geosplit, old_xy, geocomment, comment.on.unit, zone.de.confidence, no.tcc, nameoftcc_1, 
             notroopspertcc_1, 
             nameoftcc_2, notroopspertcc_2, nameoftcc_3, notroopspertcc_3, nameoftcc_4, notroopspertcc_4,
@@ -25,53 +26,44 @@ d = readRDS("./data/Geo-PKO-v-2-1.RDS") %>%
             nameoftcc_17, notroopspertcc_17, tcc1, tcc2, tcc3, tcc4, tcc5, tcc6, tcc7, tcc8, tcc9, tcc10, tcc11,
             tcc12, tcc13, tcc14, tcc15, tcc16, tcc17, jmco, comments, unmo.coding.quality,cow_code))
 
+duplicates <- duplicated(geopko)
+
+# Subset 'test' to keep only the duplicate observations
+duplicate_rows <- geopko[duplicates, ]
+
+# Now 'duplicate_rows' contains the duplicated observations
+
 ### assign IDs to each base
-df <- d %>% # Group the dataframe by latitude and longitude, then assign unique identifiers
+geopko <- geopko %>% # Group the dataframe by latitude and longitude, then assign unique identifiers
   group_by(latitude, longitude) %>%
-  mutate(base_id = 1000 + cur_base_id()) %>%
+  mutate(base_id = 1000 + cur_group_id()) %>%
   relocate(base_id, .after = longitude)
 
 # verify new variable created correctly
-dd = df %>% 
+dd = geopko %>% 
   distinct(latitude, longitude, base_id)
 # this code identifies unqiue combinations of these three variables; every observation should be unique
 range(table(dd$base_id)) # should be from 1 to 1
 
-rm(d, dd)
-gc()
+rm(dd)
 
 # upon visual check, base 2132 has no lat or lon, so remove
-df <- df %>% filter(base_id != 2132)
+geopko <- geopko %>% filter(base_id != 2132)
 
-### expand static data to cover years when "yearly" data isn't available
-year <- seq(1994, 2020, 1)
-test <- expand_grid(df, year)
+### create a full grid of base_id-month-years
+all_base_ids <- sort(unique(c(geopko$base_id)))
+df <- expand_grid(base_id = all_base_ids, 
+                  year = seq(1994, 2020, 1), 
+                  month = seq(1, 12, 1))
 
-### merge on grid ID and year, then reorder variables
-prio <- full_join(prio_static, prio_yearly, by = c("gid", "year")) %>% 
-  relocate(year, .after = "gid")
-
-### expand into monthly data
-month <- seq(1, 12, 1)
-test <- expand_grid(prio, month) %>% 
-  relocate(month, .after = "year") %>% 
-  arrange(gid, year, month)
-
-
-
-
-
-
-
-
-
-
+### join geopko into full date
+test = left_join(df, geopko, by = c("base_id", "month", "year"))
 
 
 
 
 ### calculate radii of each base
-
+ # more computationally efficient to make a dataframe of just base_id and lat/lon, calculate circles, then merge
 ### set the CRS
 proj_crs <- st_crs(prio_shp)
 
