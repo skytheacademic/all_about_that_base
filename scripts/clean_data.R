@@ -97,27 +97,27 @@ gc()
 ##### CREATE VARIABLES FOR PACKAGE `DID` #####
 
 ### create a unified time variable. this needs to be a positive integer for `did`
-df <- df %>% 
+df = df %>% 
   mutate(time = (year-1994)*(12) + month)
 
 ### split by base_id and make some variables
-dd <- df %>% as.data.frame() %>% select(base_id, time, t_ind)
-dd <- split(dd, f = dd$base_id)
-dd <- lapply(dd, FUN = function(x){
-  y <- x[which(x$t_ind == 1),]
+dd = df %>% as.data.frame() %>% select(base_id, time, t_ind)
+dd = split(dd, f = dd$base_id)
+dd = lapply(dd, FUN = function(x){
+  y = x[which(x$t_ind == 1),]
   # create a "first treated" variable. needs to be 0 for untreated
-  x$first_treated <- ifelse(nrow(y) == 0, 0, min(y$time))
+  x$first_treated = ifelse(nrow(y) == 0, 0, min(y$time))
   # create a "post treated" variable. needs to be 0 until treatment then 1
-  x$post_treatment <- ifelse(x$first_treated != 0 & x$time >= x$first_treated, 
+  x$post_treatment = ifelse(x$first_treated != 0 & x$time >= x$first_treated, 
                              1, 0)
   # create a "treated" variable. needs to be 0 if control and 1 if treated
-  x$treated <- ifelse(sum(x$t_ind, na.rm = T) > 0, 1, 0)
+  x$treated = ifelse(sum(x$t_ind, na.rm = T) > 0, 1, 0)
   x
 })
-dd <- do.call(rbind, dd)
-dd <- dd[,c("base_id", "time", "first_treated", "treated", "post_treatment")]
+dd = do.call(rbind, dd)
+dd = dd[,c("base_id", "time", "first_treated", "treated", "post_treatment")]
 # merge back to main df
-d <- left_join(df, dd, by = c("base_id", "time"))
+d = left_join(df, dd, by = c("base_id", "time"))
 
 ### clean up
 rm(dd, df)
@@ -125,56 +125,114 @@ rm(dd, df)
 ### calculate radii (2, 5, 10, 20, 30 kms) of each base to use for merging
   # each will be it's own dataset (because of the way sf stores data)
 
+##### Merge UCDP data #####
+# read in data
+dd = read.csv("./data/ucdp_ged/ucdp-actor-221.csv", encoding = "UTF-8") %>% 
+  # if there is an error here, it's usually because of the encoding
+  rename(a_id = ActorId, org = Org) %>%
+  select(c(a_id, org)) # grab data so we can classify actors during OSV
+df = read.csv("./data/ucdp_ged/GEDEvent_v22_1.csv") %>%
+  # make the date variable a date type
+  mutate(date = ymd_hms(date_end)) %>%
+  mutate(month = month(date)) %>%
+  filter(type_of_violence == 3) %>%
+  select(c(date, month, year, side_a_new_id, deaths_civilians, longitude, latitude)) %>%
+  rename(ucdp_deaths = deaths_civilians) %>%
+  select(-c("date"))
+
+df = left_join(df, dd, by = c("side_a_new_id" = "a_id")) %>%
+  select(-c(side_a_new_id)) %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = "+proj=longlat +datum=WGS84") 
+
+rm(dd)
+
 dd = d %>%
   select(c(base_id, year, month, latitude, longitude))
 
 # create single vector of unique bases to speed up computation timeafter calculation, merge into bigger data
 base = dd %>% 
   distinct(latitude, longitude, base_id) 
+rm(dd)
 
-base <- st_as_sf(base, coords = c("longitude", "latitude"), crs = "+proj=longlat +datum=WGS84") 
+base = st_as_sf(base, coords = c("longitude", "latitude"), crs = "+proj=longlat +datum=WGS84") 
 
 ## calculate radii of each base
 # 2km
-dd_5 <- st_buffer(base, dist = 2000)
+dd_2 = st_buffer(base, dist = 2000)  # distance is in meters
+dd_2 <- st_join(dd_2, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
 
-dd_5 = left_join(d, dd_5, by = "base_id") %>%
-  select(-c(latitude, longitude)) %>%
-  st_as_sf()
+dd_2 = dd_2 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
 
-# # Buffer circles by 2000m
-# dat_circles <- st_buffer(dd_5, dist = 2000)
+dd_2$ucdp_gov_vac_5 = 0
+dd_2$ucdp_gov_vac_5[dd_2$org == 4 & dd_2$ucdp_deaths >= 5] = 1
+dd_2$ucdp_gov_vac_all = 0
+dd_2$ucdp_gov_vac_all[dd_2$org == 4] = dd_2$ucdp_deaths[dd_2$org == 4]
+dd_2$ucdp_reb_vac_5 = 0
+dd_2$ucdp_reb_vac_5[dd_2$org == 1 & dd_2$ucdp_deaths >= 5] = 1
+dd_2$ucdp_reb_vac_all = 0 
+dd_2$ucdp_reb_vac_all[dd_2$org==1] = dd_2$ucdp_deaths[dd_2$org==1]
 
+dd_2 = dd_2 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_2 = left_join(d, dd_2, by = c("base_id", "year", "month"))
+
+dd_2 = dd_2 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+
+
+
+
+
+# dd_2 = left_join(d, dd_2, by = "base_id") %>%
+#   select(c(base_id, year, month, geometry)) %>% 
+#   st_as_sf()
 
 # 5km
+dd_5 = st_buffer(base, dist = 5000) # distance is in meters
+
+dd_5 = left_join(d, dd_5, by = "base_id") %>%
+  select(c(base_id, year, month, geometry)) %>% 
+  st_as_sf()
+
 
 # 10km
+dd_10 = st_buffer(base, dist = 10000) # distance is in meters
+
+dd_10 = left_join(d, dd_10, by = "base_id") %>%
+  select(c(base_id, year, month, geometry)) %>% 
+  st_as_sf()
 
 # 20km
+dd_20 = st_buffer(base, dist = 20000) # distance is in meters
+
+dd_20 = left_join(d, dd_20, by = "base_id") %>%
+  select(c(base_id, year, month, geometry)) %>% 
+  st_as_sf()
 
 # 30km
+dd_30 = st_buffer(base, dist = 30000) # distance is in meters
+
+dd_30 = left_join(d, dd_30, by = "base_id") %>%
+  select(c(base_id, year, month, geometry)) %>% 
+  st_as_sf()
 
 ## merge violence data to base 
 
 # pull variables
 
-##### Merge UCDP data #####
-# read in data
-dd = read.csv("./data/ucdp_ged/ucdp-actor-221.csv", encoding = "UTF-8") %>% 
-  # if there is an error here, check encoding and rename columns accordingly
-  rename(a_id = ActorId) %>%
-  select(c(a_id, Org)) # grab data so we can classify actors during OSV
-df = read.csv("./data/ucdp_ged/GEDEvent_v22_1.csv") %>%
-  # make the date variable a date type
-  mutate(date = ymd_hms(date_end)) %>%
-  mutate(month = month(date)) %>%
-  filter(type_of_violence == 3) %>%
-  select(c(date, month, year, side_a_new_id, priogrid_gid, deaths_civilians)) %>%
-  # rename variable for ease of merging
-  rename(prio.grid = priogrid_gid, ucdp_deaths = deaths_civilians) %>%
-  select(-c("date"))
 
-df = left_join(df, dd, by = c("side_a_new_id" = "a_id"))
+
+dd_2 = dd_2 %>%
+  
 
 df = df %>%
   group_by(prio.grid, year, month, Org) %>%
@@ -182,57 +240,22 @@ df = df %>%
   drop_na(Org) %>% 
   ungroup()
 
-df$ucdp_gov_vac_5 = 0
-df$ucdp_gov_vac_5[df$Org == 4 & df$ucdp_deaths >= 5] = 1
-df$ucdp_gov_vac_all = 0
-df$ucdp_gov_vac_all[df$Org == 4] = df$ucdp_deaths[df$Org == 4]
-df$ucdp_reb_vac_5 = 0
-df$ucdp_reb_vac_5[df$Org == 1 & df$ucdp_deaths >= 5] = 1
-df$ucdp_reb_vac_all = 0 
-df$ucdp_reb_vac_all[df$Org==1] = df$ucdp_deaths[df$Org==1]
-
-df = df %>%
-  group_by(prio.grid, year, month) %>%
-  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
-
-a = left_join(radpko, df, by = c("prio.grid", "year", "month"))
-
-a = a %>% 
-  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
-                ~replace_na(.x, 0)))
 
 
 
-### calculate radii of each base
- # more computationally efficient to make a dataframe of just base_id and lat/lon, calculate circles, then merge
-### set the CRS
-proj_crs <- st_crs(prio_shp)
-
-### convert acled to an sf object with a shared CRS
-acled <- st_as_sf(acled, coords = c("longitude", "latitude"), crs = proj_crs)
-
-####################################################################
-# test stackechange answer #
-
-dd <- st_as_sf(df, coords = c("longitude", "latitude"), crs = "+proj=longlat +datum=WGS84") 
-
-# Buffer circles by 1000m
-dat_circles <- st_buffer(dd, dist = 1000)
-
-bb <- st_bbox(dat_circles)
-
-pdf("./results/test_plot.pdf")
-plot(dat_circles[, "base_id"], 
-     xlim = c(mean(c(bb["xmin"], bb["xmax"])) - 100, 
-              mean(c(bb["xmin"], bb["xmax"])) + 100), 
-     ylim = c(mean(c(bb["ymin"], bb["ymax"])) - 100, 
-              mean(c(bb["ymin"], bb["ymax"])) + 100))
-dev.off()
-plot(ticino_int_circles[, "NAME_3"], add = TRUE)
 
 
-# end test
-####################################################################
+
+
+
+
+
+
+
+
+
+
+
 
 
 #### Export Data ####
