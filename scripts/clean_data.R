@@ -17,8 +17,13 @@ set.seed(8675309) # hey jenny
 
 # source, geosplit, old_xy, geocomment, comment.on.unit, zone.de.confidence
 ### read in data, filter out data not relevant to project
-geopko = readRDS("./data/Geo-PKO-v-2-1.RDS") %>%
+geopko = readRDS("./data/geo_pko/Geo-PKO-v-2-1.RDS") %>%
   filter(geosplit != 1) %>% 
+  # geosplit is an issue. for example:
+  # the MONUSCO mission in 2015 (base_id = 1216) has duplicate observations, where 1 observation is listed in the
+  # DRC, but the other is listed in Burundi, yet each have the same coordinates. since there are only 138 of these,
+  # and they're unlikely to effect the results, I'm removing them since it's impossible to know where to draw the 
+  # circle
   select(year, month, latitude, longitude, hq, prioid) %>%
   # select(-c(source, geosplit, old_xy, geocomment, comment.on.unit, zone.de.confidence, no.tcc, nameoftcc_1, 
   #           notroopspertcc_1, 
@@ -29,11 +34,6 @@ geopko = readRDS("./data/Geo-PKO-v-2-1.RDS") %>%
   #           nameoftcc_14, notroopspertcc_14, nameoftcc_15, notroopspertcc_15,nameoftcc_16, notroopspertcc_16,
   #           nameoftcc_17, notroopspertcc_17, tcc1, tcc2, tcc3, tcc4, tcc5, tcc6, tcc7, tcc8, tcc9, tcc10, tcc11,
   #           tcc12, tcc13, tcc14, tcc15, tcc16, tcc17, jmco, comments, unmo.coding.quality,cow_code)) %>%
-  # geosplit is an issue. for example:
-  # the MONUSCO mission in 2015 (base_id = 1216) has duplicate observations, where 1 observation is listed in the
-  # DRC, but the other is listed in Burundi, yet each have the same coordinates. since there are only 138 of these,
-  # and they're unlikely to effect the results, I'm removing them since it's impossible to know where to draw the 
-  # circle
   distinct() %>%
   mutate(t_ind = 1) # create treatment variable
   # with these variables removed, there are duplicates in the data. it's unclear why (Cil, Fjelde, Hultman, & 
@@ -94,6 +94,113 @@ df = left_join(df, dd, by = "base_id")
 rm(geopko, all_base_ids, dd)
 gc()
 
+##### CREATE VARIABLES FOR PACKAGE `DID` #####
+
+### create a unified time variable. this needs to be a positive integer for `did`
+df <- df %>% 
+  mutate(time = (year-1994)*(12) + month)
+
+### split by base_id and make some variables
+dd <- df %>% as.data.frame() %>% select(base_id, time, t_ind)
+dd <- split(dd, f = dd$base_id)
+dd <- lapply(dd, FUN = function(x){
+  y <- x[which(x$t_ind == 1),]
+  # create a "first treated" variable. needs to be 0 for untreated
+  x$first_treated <- ifelse(nrow(y) == 0, 0, min(y$time))
+  # create a "post treated" variable. needs to be 0 until treatment then 1
+  x$post_treatment <- ifelse(x$first_treated != 0 & x$time >= x$first_treated, 
+                             1, 0)
+  # create a "treated" variable. needs to be 0 if control and 1 if treated
+  x$treated <- ifelse(sum(x$t_ind, na.rm = T) > 0, 1, 0)
+  x
+})
+dd <- do.call(rbind, dd)
+dd <- dd[,c("base_id", "time", "first_treated", "treated", "post_treatment")]
+# merge back to main df
+d <- left_join(df, dd, by = c("base_id", "time"))
+
+### clean up
+rm(dd, df)
+
+### calculate radii (2, 5, 10, 20, 30 kms) of each base to use for merging
+  # each will be it's own dataset (because of the way sf stores data)
+
+dd = d %>%
+  select(c(base_id, year, month, latitude, longitude))
+
+# create single vector of unique bases to speed up computation timeafter calculation, merge into bigger data
+base = dd %>% 
+  distinct(latitude, longitude, base_id) 
+
+base <- st_as_sf(base, coords = c("longitude", "latitude"), crs = "+proj=longlat +datum=WGS84") 
+
+## calculate radii of each base
+# 2km
+dd_5 <- st_buffer(base, dist = 2000)
+
+dd_5 = left_join(d, dd_5, by = "base_id") %>%
+  select(-c(latitude, longitude)) %>%
+  st_as_sf()
+
+# # Buffer circles by 2000m
+# dat_circles <- st_buffer(dd_5, dist = 2000)
+
+
+# 5km
+
+# 10km
+
+# 20km
+
+# 30km
+
+## merge violence data to base 
+
+# pull variables
+
+##### Merge UCDP data #####
+# read in data
+dd = read.csv("./data/ucdp_ged/ucdp-actor-221.csv", encoding = "UTF-8") %>% 
+  # if there is an error here, check encoding and rename columns accordingly
+  rename(a_id = ActorId) %>%
+  select(c(a_id, Org)) # grab data so we can classify actors during OSV
+df = read.csv("./data/ucdp_ged/GEDEvent_v22_1.csv") %>%
+  # make the date variable a date type
+  mutate(date = ymd_hms(date_end)) %>%
+  mutate(month = month(date)) %>%
+  filter(type_of_violence == 3) %>%
+  select(c(date, month, year, side_a_new_id, priogrid_gid, deaths_civilians)) %>%
+  # rename variable for ease of merging
+  rename(prio.grid = priogrid_gid, ucdp_deaths = deaths_civilians) %>%
+  select(-c("date"))
+
+df = left_join(df, dd, by = c("side_a_new_id" = "a_id"))
+
+df = df %>%
+  group_by(prio.grid, year, month, Org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(Org) %>% 
+  ungroup()
+
+df$ucdp_gov_vac_5 = 0
+df$ucdp_gov_vac_5[df$Org == 4 & df$ucdp_deaths >= 5] = 1
+df$ucdp_gov_vac_all = 0
+df$ucdp_gov_vac_all[df$Org == 4] = df$ucdp_deaths[df$Org == 4]
+df$ucdp_reb_vac_5 = 0
+df$ucdp_reb_vac_5[df$Org == 1 & df$ucdp_deaths >= 5] = 1
+df$ucdp_reb_vac_all = 0 
+df$ucdp_reb_vac_all[df$Org==1] = df$ucdp_deaths[df$Org==1]
+
+df = df %>%
+  group_by(prio.grid, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+a = left_join(radpko, df, by = c("prio.grid", "year", "month"))
+
+a = a %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+
 
 
 ### calculate radii of each base
@@ -108,7 +215,6 @@ acled <- st_as_sf(acled, coords = c("longitude", "latitude"), crs = proj_crs)
 # test stackechange answer #
 
 dd <- st_as_sf(df, coords = c("longitude", "latitude"), crs = "+proj=longlat +datum=WGS84") 
-  # Reproject to EPSG:3035
 
 # Buffer circles by 1000m
 dat_circles <- st_buffer(dd, dist = 1000)
