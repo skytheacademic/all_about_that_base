@@ -188,75 +188,135 @@ dd_2 = dd_2 %>%
   mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
                 ~replace_na(.x, 0)))
 
-
-
-
-
-# dd_2 = left_join(d, dd_2, by = "base_id") %>%
-#   select(c(base_id, year, month, geometry)) %>% 
-#   st_as_sf()
-
 # 5km
-dd_5 = st_buffer(base, dist = 5000) # distance is in meters
+dd_5 = st_buffer(base, dist = 5000)  # distance is in meters
+dd_5 <- st_join(dd_5, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
 
-dd_5 = left_join(d, dd_5, by = "base_id") %>%
-  select(c(base_id, year, month, geometry)) %>% 
-  st_as_sf()
+dd_5 = dd_5 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
+
+dd_5$ucdp_gov_vac_5 = 0
+dd_5$ucdp_gov_vac_5[dd_5$org == 4 & dd_5$ucdp_deaths >= 5] = 1
+dd_5$ucdp_gov_vac_all = 0
+dd_5$ucdp_gov_vac_all[dd_5$org == 4] = dd_5$ucdp_deaths[dd_5$org == 4]
+dd_5$ucdp_reb_vac_5 = 0
+dd_5$ucdp_reb_vac_5[dd_5$org == 1 & dd_5$ucdp_deaths >= 5] = 1
+dd_5$ucdp_reb_vac_all = 0 
+dd_5$ucdp_reb_vac_all[dd_5$org==1] = dd_5$ucdp_deaths[dd_5$org==1]
+
+dd_5 = dd_5 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_5 = left_join(d, dd_5, by = c("base_id", "year", "month"))
+
+dd_5 = dd_5 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
 
 
 # 10km
-dd_10 = st_buffer(base, dist = 10000) # distance is in meters
+dd_10 = st_buffer(base, dist = 10000)  # distance is in meters
+dd_10 <- st_join(dd_10, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
 
-dd_10 = left_join(d, dd_10, by = "base_id") %>%
-  select(c(base_id, year, month, geometry)) %>% 
-  st_as_sf()
-
-# 20km
-dd_20 = st_buffer(base, dist = 20000) # distance is in meters
-
-dd_20 = left_join(d, dd_20, by = "base_id") %>%
-  select(c(base_id, year, month, geometry)) %>% 
-  st_as_sf()
-
-# 30km
-dd_30 = st_buffer(base, dist = 30000) # distance is in meters
-
-dd_30 = left_join(d, dd_30, by = "base_id") %>%
-  select(c(base_id, year, month, geometry)) %>% 
-  st_as_sf()
-
-## merge violence data to base 
-
-# pull variables
-
-
-
-dd_2 = dd_2 %>%
-  
-
-df = df %>%
-  group_by(prio.grid, year, month, Org) %>%
+dd_10 = dd_10 %>%
+  group_by(base_id, month, year, org) %>%
   summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
-  drop_na(Org) %>% 
+  drop_na(org) %>% 
   ungroup()
 
+dd_10$ucdp_gov_vac_5 = 0
+dd_10$ucdp_gov_vac_5[dd_10$org == 4 & dd_10$ucdp_deaths >= 5] = 1
+dd_10$ucdp_gov_vac_all = 0
+dd_10$ucdp_gov_vac_all[dd_10$org == 4] = dd_10$ucdp_deaths[dd_10$org == 4]
+dd_10$ucdp_reb_vac_5 = 0
+dd_10$ucdp_reb_vac_5[dd_10$org == 1 & dd_10$ucdp_deaths >= 5] = 1
+dd_10$ucdp_reb_vac_all = 0 
+dd_10$ucdp_reb_vac_all[dd_10$org==1] = dd_10$ucdp_deaths[dd_10$org==1]
 
+dd_10 = dd_10 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
 
+dd_10 = left_join(d, dd_10, by = c("base_id", "year", "month"))
 
+dd_10 = dd_10 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
 
+# 20km
+dd_20 = st_buffer(base, dist = 20000)  # distance is in meters
+dd_20 <- st_join(dd_20, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
 
+dd_20 = dd_20 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
 
+dd_20$ucdp_gov_vac_5 = 0
+dd_20$ucdp_gov_vac_5[dd_20$org == 4 & dd_20$ucdp_deaths >= 5] = 1
+dd_20$ucdp_gov_vac_all = 0
+dd_20$ucdp_gov_vac_all[dd_20$org == 4] = dd_20$ucdp_deaths[dd_20$org == 4]
+dd_20$ucdp_reb_vac_5 = 0
+dd_20$ucdp_reb_vac_5[dd_20$org == 1 & dd_20$ucdp_deaths >= 5] = 1
+dd_20$ucdp_reb_vac_all = 0 
+dd_20$ucdp_reb_vac_all[dd_20$org==1] = dd_20$ucdp_deaths[dd_20$org==1]
 
+dd_20 = dd_20 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
 
+dd_20 = left_join(d, dd_20, by = c("base_id", "year", "month"))
 
+dd_20 = dd_20 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
 
+# 30km
+dd_30 = st_buffer(base, dist = 30000)  # distance is in meters
+dd_30 <- st_join(dd_30, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
 
+dd_30 = dd_30 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
 
+dd_30$ucdp_gov_vac_5 = 0
+dd_30$ucdp_gov_vac_5[dd_30$org == 4 & dd_30$ucdp_deaths >= 5] = 1
+dd_30$ucdp_gov_vac_all = 0
+dd_30$ucdp_gov_vac_all[dd_30$org == 4] = dd_30$ucdp_deaths[dd_30$org == 4]
+dd_30$ucdp_reb_vac_5 = 0
+dd_30$ucdp_reb_vac_5[dd_30$org == 1 & dd_30$ucdp_deaths >= 5] = 1
+dd_30$ucdp_reb_vac_all = 0 
+dd_30$ucdp_reb_vac_all[dd_30$org==1] = dd_30$ucdp_deaths[dd_30$org==1]
 
+dd_30 = dd_30 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
 
+dd_30 = left_join(d, dd_30, by = c("base_id", "year", "month"))
 
-
-
+dd_30 = dd_30 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
 
 #### Export Data ####
-saveRDS(d, "./data/kunkel_final.RDS")
+saveRDS(dd_2, "./data/kunkel_final_2km.RDS")
+saveRDS(dd_5, "./data/kunkel_final_5km.RDS")
+saveRDS(dd_10, "./data/kunkel_final_10km.RDS")
+saveRDS(dd_20, "./data/kunkel_final_20km.RDS")
+saveRDS(dd_30, "./data/kunkel_final_30km.RDS")
+
