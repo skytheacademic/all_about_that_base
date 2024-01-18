@@ -12,7 +12,8 @@ options(scipen = 999)
 
 ### set working directory ###
 rm(list = ls())
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set to source file location
+# setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set to source file location
+setwd("//nas01.itap.purdue.edu/puhome/My Documents/GitHub/all_about_that_base")
 setwd("../") # back out to main folder
 
 ### set seed
@@ -48,8 +49,9 @@ out1 <- att_gt(yname = "ucdp_gov_vac_5", tname = "time", idname = "base_id",
                control_group = "notyettreated")
 es1 <- aggte(out1, type = "group", na.rm = T)
 summary(es1)
-d_2 = rbind(data.frame(att = es1$overall.att, se = es1$overall.se, binary = 1, actor = "Gov"))
+d_2 = rbind(d_2, data.frame(att = es1$overall.att, se = es1$overall.se, binary = 1, actor = "Gov"))
 rm(out1, es1)
+gc()
 
 set.seed(8675309) # hey jenny
 out2 <- att_gt(yname = "ucdp_reb_vac_5", tname = "time", idname = "base_id", 
@@ -57,8 +59,9 @@ out2 <- att_gt(yname = "ucdp_reb_vac_5", tname = "time", idname = "base_id",
                control_group = "notyettreated")
 es2 <- aggte(out2, type = "group", na.rm = T)
 summary(es2)
-d_2 = rbind(data.frame(att = es2$overall.att, se = es2$overall.se, binary = 1, actor = "Reb"))
+d_2 = rbind(d_2,data.frame(att = es2$overall.att, se = es2$overall.se, binary = 1, actor = "Reb"))
 rm(out2, es2)
+gc()
 
 ###### Continuous #######
 ## State violence ##
@@ -68,8 +71,9 @@ out3 <- att_gt(yname = "ucdp_gov_vac_all", tname = "time", idname = "base_id",
                control_group = "notyettreated")
 es3 <- aggte(out3, type = "group", na.rm = T)
 summary(es3)
-d_2 = rbind(data.frame(att = es3$overall.att, se = es3$overall.se, binary = 0, actor = "Gov"))
+d_2 = rbind(d_2, data.frame(att = es3$overall.att, se = es3$overall.se, binary = 0, actor = "Gov"))
 rm(out3, es3)
+gc()
 
 set.seed(8675309) # hey jenny
 out4 <- att_gt(yname = "ucdp_reb_vac_all", tname = "time", idname = "base_id", 
@@ -77,9 +81,9 @@ out4 <- att_gt(yname = "ucdp_reb_vac_all", tname = "time", idname = "base_id",
                control_group = "notyettreated")
 es4 <- aggte(out4, type = "group", na.rm = T)
 summary(es4)
-d_2 = rbind(data.frame(att = es4$overall.att, se = es4$overall.se, binary = 0, actor = "Reb"))
+d_2 = rbind(d_2, data.frame(att = es4$overall.att, se = es4$overall.se, binary = 0, actor = "Reb"))
 rm(out4, es4)
-
+gc()
 
 # Define the models and corresponding labels
 models <- c("ucdp_gov_vac_5", "ucdp_reb_vac_5", "ucdp_gov_vac_all", "ucdp_reb_vac_all")
