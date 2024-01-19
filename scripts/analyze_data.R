@@ -34,9 +34,10 @@ rm(list = ls())
 
 ### Main Models ###
 
-dd_2 = readRDS("./data/kunkel_final_2km.RDS")
 
 ##################################### DEATHS - 2KM #####################################
+dd_2 = readRDS("./data/kunkel_final_2km.RDS")
+
 # make dataframe to save values
 d_2 = data.frame() %>%
   mutate(att = NA, se = NA, binary = NA, actor = NA)
@@ -84,6 +85,140 @@ summary(es4)
 d_2 = rbind(d_2, data.frame(att = es4$overall.att, se = es4$overall.se, binary = 0, actor = "Reb"))
 rm(out4, es4)
 gc()
+saveRDS(d_2, "./results/2km_results.RDS")
+
+
+##################################### DEATHS - 5KM #####################################
+rm(list = ls())
+dd_5 = readRDS("./data/kunkel_final_5km.RDS")
+# make dataframe to save values
+d_5 = data.frame() %>%
+  mutate(att = NA, se = NA, binary = NA, actor = NA)
+
+###### Binary #######
+## State violence ##
+set.seed(8675309) # hey jenny
+out1 <- att_gt(yname = "ucdp_gov_vac_5", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_5, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es1 <- aggte(out1, type = "group", na.rm = T)
+summary(es1)
+d_5 = rbind(d_5, data.frame(att = es1$overall.att, se = es1$overall.se, binary = 1, actor = "Gov"))
+rm(out1, es1)
+gc()
+
+set.seed(8675309) # hey jenny
+out2 <- att_gt(yname = "ucdp_reb_vac_5", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_5, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es2 <- aggte(out2, type = "group", na.rm = T)
+summary(es2)
+d_5 = rbind(d_5,data.frame(att = es2$overall.att, se = es2$overall.se, binary = 1, actor = "Reb"))
+rm(out2, es2)
+gc()
+
+###### Continuous #######
+## State violence ##
+set.seed(8675309) # hey jenny
+out3 <- att_gt(yname = "ucdp_gov_vac_all", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_5, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es3 <- aggte(out3, type = "group", na.rm = T)
+summary(es3)
+d_5 = rbind(d_5, data.frame(att = es3$overall.att, se = es3$overall.se, binary = 0, actor = "Gov"))
+rm(out3, es3)
+gc()
+
+set.seed(8675309) # hey jenny
+out4 <- att_gt(yname = "ucdp_reb_vac_all", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_5, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es4 <- aggte(out4, type = "group", na.rm = T)
+summary(es4)
+d_5 = rbind(d_5, data.frame(att = es4$overall.att, se = es4$overall.se, binary = 0, actor = "Reb"))
+rm(out4, es4)
+gc()
+
+saveRDS(d_5, "./results/5km_results.RDS")
+
+##################################### DEATHS - 10KM #####################################
+rm(list = ls())
+dd_10 = readRDS("./data/kunkel_final_10km.RDS")
+# make dataframe to save values
+d_10 = data.frame() %>%
+  mutate(att = NA, se = NA, binary = NA, actor = NA)
+
+###### Binary #######
+## State violence ##
+set.seed(8675309) # hey jenny
+out1 <- att_gt(yname = "ucdp_gov_vac_5", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_10, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es1 <- aggte(out1, type = "group", na.rm = T)
+summary(es1)
+d_10 = rbind(d_10, data.frame(att = es1$overall.att, se = es1$overall.se, binary = 1, actor = "Gov"))
+rm(out1, es1)
+gc()
+
+set.seed(8675309) # hey jenny
+out2 <- att_gt(yname = "ucdp_reb_vac_5", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_10, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es2 <- aggte(out2, type = "group", na.rm = T)
+summary(es2)
+d_10 = rbind(d_10,data.frame(att = es2$overall.att, se = es2$overall.se, binary = 1, actor = "Reb"))
+rm(out2, es2)
+gc()
+
+###### Continuous #######
+## State violence ##
+set.seed(8675309) # hey jenny
+out3 <- att_gt(yname = "ucdp_gov_vac_all", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_10, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es3 <- aggte(out3, type = "group", na.rm = T)
+summary(es3)
+d_10 = rbind(d_10, data.frame(att = es3$overall.att, se = es3$overall.se, binary = 0, actor = "Gov"))
+rm(out3, es3)
+gc()
+
+set.seed(8675309) # hey jenny
+out4 <- att_gt(yname = "ucdp_reb_vac_all", tname = "time", idname = "base_id", 
+               gname = "first_treated",data = dd_10, pl = T, cores = 1, allow_unbalanced_panel = T,
+               control_group = "notyettreated")
+es4 <- aggte(out4, type = "group", na.rm = T)
+summary(es4)
+d_10 = rbind(d_10, data.frame(att = es4$overall.att, se = es4$overall.se, binary = 0, actor = "Reb"))
+rm(out4, es4)
+gc()
+
+saveRDS(d_10, "./results/10km_results.RDS")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Define the models and corresponding labels
 models <- c("ucdp_gov_vac_5", "ucdp_reb_vac_5", "ucdp_gov_vac_all", "ucdp_reb_vac_all")
