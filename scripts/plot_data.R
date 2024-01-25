@@ -6,7 +6,118 @@
 #### Load libraries and data ####
 library(tidyverse)
 
-setwd("../")
+
+# turn off scientific notation
+options(scipen = 999)
+
+### set working directory ###
+rm(list = ls())
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set to source file location
+setwd("../") # back out to main folder
+
+############# Plot point estimates of models ############# 
+d_2 = readRDS("./results/2km_results.RDS") %>% 
+  mutate(distance = "2km")
+d_5 = readRDS("./results/5km_results.RDS") %>% 
+  mutate(distance = "5km")
+d_10 = readRDS("./results/10km_results.RDS") %>% 
+  mutate(distance = "10km")
+d_20 = readRDS("./results/20km_results.RDS") %>% 
+  mutate(distance = "20km")
+d_30 = readRDS("./results/30km_results.RDS") %>% 
+  mutate(distance = "30km")
+
+d = rbind(d_2, d_5, d_10, d_20, d_30)
+rm(d_2, d_5, d_10, d_20, d_30)
+
+
+
+
+
+############# GOV & REBEL VIOLENCE - BINARY ############# 
+
+pdf("./results/gov_vac_binary.pdf", width = 8, height = 4)
+ggplot(subset(d, distance %in% c("2km", "5km", "10km", "20km", "30km") & binary == 1 & actor == "Gov"),
+       aes(x = factor(distance, levels = c("2km", "5km", "10km", "20km", "30km")), y = att, color = factor(distance))) +
+  geom_point(position = position_dodge(width = 0.8), size = 3) +
+  geom_errorbar(aes(ymin = att - se, ymax = att + se),
+                width = 0.2, position = position_dodge(width = 0.8)) +
+  scale_color_manual(values = c("2km" = "#4D858E", "5km" = "#4D858E", "10km" = "#4D858E", "20km" = "#4D858E", "30km" = "#4D858E")) +
+  theme_minimal() + labs(title = "", y = "ATT", x = "") +
+  theme(strip.text.x = element_blank(), axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(), axis.text.y.right = element_blank(),
+        legend.position = "none", axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16)) +
+  scale_y_continuous(limits = c(-0.040, 0.001), breaks = seq(-0.040, 0.001, 0.01)) + 
+  guides(color = guide_legend(override.aes = list(linetype = c(0, 0)))) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey", size = 0.5)
+dev.off()
+
+pdf("./results/reb_vac_binary.pdf", width = 8, height = 4)
+ggplot(subset(d, distance %in% c("2km", "5km", "10km", "20km", "30km") & binary == 1 & actor == "Reb"),
+       aes(x = factor(distance, levels = c("2km", "5km", "10km", "20km", "30km")), y = att, color = factor(distance))) +
+  geom_point(position = position_dodge(width = 0.8), size = 3) +
+  geom_errorbar(aes(ymin = att - se, ymax = att + se),
+                width = 0.2, position = position_dodge(width = 0.8)) +
+  scale_color_manual(values = c("2km" = "#E38030", "5km" = "#E38030", "10km" = "#E38030", "20km" = "#E38030", "30km" = "#E38030")) +
+  theme_minimal() + labs(title = "", y = "ATT", x = "") +
+  theme(strip.text.x = element_blank(), axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(), axis.text.y.right = element_blank(),
+        legend.position = "none", axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16)) +
+  scale_y_continuous(limits = c(-0.040, 0.001), breaks = seq(-0.040, 0.001, 0.01)) + 
+  guides(color = guide_legend(override.aes = list(linetype = c(0, 0)))) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey", size = 0.5)
+dev.off()
+
+############# GOV & REBEL VIOLENCE - COUNT ############# 
+
+pdf("./results/gov_vac_all.pdf", width = 8, height = 4)
+ggplot(subset(d, distance %in% c("2km", "5km", "10km", "20km", "30km") & binary == 0 & actor == "Gov"),
+       aes(x = factor(distance, levels = c("2km", "5km", "10km", "20km", "30km")), y = att, color = factor(distance))) +
+  geom_point(position = position_dodge(width = 0.8), size = 3) +
+  geom_errorbar(aes(ymin = att - se, ymax = att + se),
+                width = 0.2, position = position_dodge(width = 0.8)) +
+  scale_color_manual(values = c("2km" = "#4D858E", "5km" = "#4D858E", "10km" = "#4D858E", "20km" = "#4D858E", "30km" = "#4D858E")) +
+  theme_minimal() + labs(title = "", y = "ATT", x = "") +
+  theme(strip.text.x = element_blank(), axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(), axis.text.y.right = element_blank(),
+        legend.position = "none", axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16)) +
+  scale_y_continuous(limits = c(-250, 10), breaks = seq(-250, 10, 50)) + 
+  guides(color = guide_legend(override.aes = list(linetype = c(0, 0)))) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey", size = 0.5)
+dev.off()
+
+pdf("./results/reb_vac_all.pdf", width = 8, height = 4)
+ggplot(subset(d, distance %in% c("2km", "5km", "10km", "20km", "30km") & binary == 0 & actor == "Reb"),
+       aes(x = factor(distance, levels = c("2km", "5km", "10km", "20km", "30km")), y = att, color = factor(distance))) +
+  geom_point(position = position_dodge(width = 0.8), size = 3) +
+  geom_errorbar(aes(ymin = att - se, ymax = att + se),
+                width = 0.2, position = position_dodge(width = 0.8)) +
+  scale_color_manual(values = c("2km" = "#E38030", "5km" = "#E38030", "10km" = "#E38030", "20km" = "#E38030", "30km" = "#E38030")) +
+  theme_minimal() + labs(title = "", y = "ATT", x = "") +
+  theme(strip.text.x = element_blank(), axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(), axis.text.y.right = element_blank(),
+        legend.position = "none", axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16)) +
+  scale_y_continuous(limits = c(-1.25, 0.5), breaks = seq(-1.25, 0.5, 0.5)) + 
+  guides(color = guide_legend(override.aes = list(linetype = c(0, 0)))) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey", size = 0.5)
+dev.off()
+
+
+
+
+
+
+
+
+
+
+############### Plot bases troop counts by missions ########################
+
+
 d = readRDS("./data/kunkel_final.RDS")
 d = readRDS("./data/kunkel_final.RDS") %>%
   dplyr::filter(!(no.troops == "unknown")) %>%
