@@ -5,15 +5,20 @@
 
 #### Load libraries and data ####
 options(max.print=1000000)
-library(tidyverse); library(janitor); library(geosphere); library(sf)
+library(tidyverse); library(janitor); library(geosphere); library(sf); library(lubridate)
 
-rm(list = ls())
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set to source file location
 setwd("../") # back out to main folder
 
 ### set seed
 set.seed(8675309) # hey jenny
 
+rm(list = ls())
+### read in UNPMM data so I can merge with GEOPKO
+library(readxl)
+unpmm = read_excel("./data/unpmm/UNPMM_V2.0.xlsx") %>%
+  filter(ocat01 == 1) %>%
+  select(c(mission_abbrev, ocat01))
 
 # source, geosplit, old_xy, geocomment, comment.on.unit, zone.de.confidence
 ### read in data, filter out data not relevant to project
@@ -24,7 +29,7 @@ geopko = readRDS("./data/geo_pko/Geo-PKO-v-2-1.RDS") %>%
   # DRC, but the other is listed in Burundi, yet each have the same coordinates. since there are only 138 of these,
   # and they're unlikely to effect the results, I'm removing them since it's impossible to know where to draw the 
   # circle
-  select(year, month, latitude, longitude, hq, prioid) %>%
+  select(year, month, latitude, longitude, prioid, mission) %>%
   # select(-c(source, geosplit, old_xy, geocomment, comment.on.unit, zone.de.confidence, no.tcc, nameoftcc_1, 
   #           notroopspertcc_1, 
   #           nameoftcc_2, notroopspertcc_2, nameoftcc_3, notroopspertcc_3, nameoftcc_4, notroopspertcc_4,
@@ -36,20 +41,20 @@ geopko = readRDS("./data/geo_pko/Geo-PKO-v-2-1.RDS") %>%
   #           tcc12, tcc13, tcc14, tcc15, tcc16, tcc17, jmco, comments, unmo.coding.quality,cow_code)) %>%
   distinct() %>%
   mutate(t_ind = 1) # create treatment variable
-  # with these variables removed, there are duplicates in the data. it's unclear why (Cil, Fjelde, Hultman, & 
-  # Nilsson don't explain duplicates in any of the supporting docs; it may just be due to different sources for 
-  # the maps). since I'm running a DiD, thus with a binary treatment, we can leave this problem for another day
+# with these variables removed, there are duplicates in the data. it's unclear why (Cil, Fjelde, Hultman, & 
+# Nilsson don't explain duplicates in any of the supporting docs; it may just be due to different sources for 
+# the maps). since I'm running a DiD, thus with a binary treatment, we can leave this problem for another day
 
-# duplicates <- duplicated(geopko)
+# duplicates = duplicated(geopko)
 # 
 # # Subset 'test' to keep only the duplicate observations
-# duplicate_rows <- geopko[duplicates, ]
+# duplicate_rows = geopko[duplicates, ]
 # 
 # test = geopko %>%
 #   filter(mission == "UNFICYP" & year == 2016 & month == 7)
 
 ### assign IDs to each base
-geopko <- geopko %>% # Group the dataframe by latitude and longitude, then assign unique identifiers
+geopko = geopko %>% # Group the dataframe by latitude and longitude, then assign unique identifiers
   group_by(latitude, longitude) %>%
   mutate(base_id = 1000 + cur_group_id()) %>%
   relocate(base_id, .after = longitude)
@@ -59,25 +64,40 @@ dd = geopko %>%
   distinct(latitude, longitude, base_id)
 # this identifies unqiue combinations of these three variables; every observation should be unique
 range(table(dd$base_id)) # should be from 1 to 1
-
 rm(dd)
 
 # some bases have no lat or lon, so remove
-geopko <- geopko %>% 
+geopko = geopko %>% 
   filter(!is.na(latitude) & !is.na(longitude))
+
+dd = left_join(unpmm, geopko, by = c("mission_abbrev" = "mission")) %>%
+  na.omit() %>%
+  select(-c(ocat01, mission_abbrev))
+rm(unpmm)
+
+#############################################
+
+# need to think through how to code HQs that change and POC that changes
+# do I just drop observations for specific models?
+# do I remove observations when they change to a new number? 
+# what about the unit of comparison for DiD??
+# could probably do this with some version of Zach's loop code for DiD
+
+
+############################################
 
 
 ### create a full grid of base_id-month-years
-all_base_ids <- sort(unique(c(geopko$base_id)))
-df <- expand_grid(base_id = all_base_ids, 
+all_base_ids = sort(unique(c(dd$base_id)))
+df = expand_grid(base_id = all_base_ids, 
                   year = seq(1994, 2020, 1), 
                   month = seq(1, 12, 1))
 
 ### join geopko into full data
-df = left_join(df, geopko, by = c("base_id", "month", "year")) %>%
-  group_by(base_id, year, month, latitude, longitude, prioid, t_ind) %>%
-  slice_max(order_by = hq) %>%
-  ungroup()
+df = left_join(df, geopko, by = c("base_id", "month", "year"))
+  # group_by(base_id, year, month, latitude, longitude, prioid, t_ind) %>%
+  # slice_max(order_by = hq) %>%
+  # ungroup()
 
 df = df %>%
   mutate(t_ind = ifelse(is.na(t_ind), 0, t_ind))
@@ -134,6 +154,7 @@ dd = read.csv("./data/ucdp_ged/ucdp-actor-221.csv", encoding = "UTF-8") %>%
 df = read.csv("./data/ucdp_ged/GEDEvent_v22_1.csv") %>%
   # make the date variable a date type
   mutate(date = ymd_hms(date_end)) %>%
+  mutate(date = date %m+% months(1)) %>% # lag the outcome variable by one month
   mutate(month = month(date)) %>%
   filter(type_of_violence == 3) %>%
   select(c(date, month, year, side_a_new_id, deaths_civilians, longitude, latitude)) %>%
@@ -159,7 +180,21 @@ base = st_as_sf(base, coords = c("longitude", "latitude"), crs = "+proj=longlat 
 ## calculate radii of each base
 # 2km
 dd_2 = st_buffer(base, dist = 2000)  # distance is in meters
-dd_2 <- st_join(dd_2, df) %>%
+
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_2, dd_2) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_2$base_id[intersecting_base_ids]
+
+dd_2 = st_join(dd_2, df) %>%
   as.data.frame() %>%
   select(-geometry)
 
@@ -188,9 +223,26 @@ dd_2 = dd_2 %>%
   mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
                 ~replace_na(.x, 0)))
 
-# 5km
+dd_2 = dd_2 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
+
+### 5km ###
 dd_5 = st_buffer(base, dist = 5000)  # distance is in meters
-dd_5 <- st_join(dd_5, df) %>%
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_5, dd_5) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_5$base_id[intersecting_base_ids]
+
+dd_5 = st_join(dd_5, df) %>%
   as.data.frame() %>%
   select(-geometry)
 
@@ -218,11 +270,25 @@ dd_5 = left_join(d, dd_5, by = c("base_id", "year", "month"))
 dd_5 = dd_5 %>% 
   mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
                 ~replace_na(.x, 0)))
+dd_5 = dd_5 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
 
-
-# 10km
+### 10km ###
 dd_10 = st_buffer(base, dist = 10000)  # distance is in meters
-dd_10 <- st_join(dd_10, df) %>%
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_10, dd_10) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_10$base_id[intersecting_base_ids]
+dd_10 = st_join(dd_10, df) %>%
   as.data.frame() %>%
   select(-geometry)
 
@@ -250,10 +316,72 @@ dd_10 = left_join(d, dd_10, by = c("base_id", "year", "month"))
 dd_10 = dd_10 %>% 
   mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
                 ~replace_na(.x, 0)))
+dd_10 = dd_10 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
+
+### 5km ###
+dd_15 = st_buffer(base, dist = 15000)  # distance is in meters
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_15, dd_15) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_15$base_id[intersecting_base_ids]
+
+dd_15 = st_join(dd_15, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
+
+dd_15 = dd_15 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
+
+dd_15$ucdp_gov_vac_5 = 0
+dd_15$ucdp_gov_vac_5[dd_15$org == 4 & dd_15$ucdp_deaths >= 5] = 1
+dd_15$ucdp_gov_vac_all = 0
+dd_15$ucdp_gov_vac_all[dd_15$org == 4] = dd_15$ucdp_deaths[dd_15$org == 4]
+dd_15$ucdp_reb_vac_5 = 0
+dd_15$ucdp_reb_vac_5[dd_15$org == 1 & dd_15$ucdp_deaths >= 5] = 1
+dd_15$ucdp_reb_vac_all = 0 
+dd_15$ucdp_reb_vac_all[dd_15$org==1] = dd_15$ucdp_deaths[dd_15$org==1]
+
+dd_15 = dd_15 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_15 = left_join(d, dd_15, by = c("base_id", "year", "month"))
+
+dd_15 = dd_15 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+dd_15 = dd_15 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
 
 # 20km
 dd_20 = st_buffer(base, dist = 20000)  # distance is in meters
-dd_20 <- st_join(dd_20, df) %>%
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_20, dd_20) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_20$base_id[intersecting_base_ids]
+dd_20 = st_join(dd_20, df) %>%
   as.data.frame() %>%
   select(-geometry)
 
@@ -281,10 +409,73 @@ dd_20 = left_join(d, dd_20, by = c("base_id", "year", "month"))
 dd_20 = dd_20 %>% 
   mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
                 ~replace_na(.x, 0)))
+dd_20 = dd_20 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
+
+### 25km ###
+dd_25 = st_buffer(base, dist = 25000)  # distance is in meters
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_25, dd_25) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_25$base_id[intersecting_base_ids]
+
+dd_25 = st_join(dd_25, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
+
+dd_25 = dd_25 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
+
+dd_25$ucdp_gov_vac_5 = 0
+dd_25$ucdp_gov_vac_5[dd_25$org == 4 & dd_25$ucdp_deaths >= 5] = 1
+dd_25$ucdp_gov_vac_all = 0
+dd_25$ucdp_gov_vac_all[dd_25$org == 4] = dd_25$ucdp_deaths[dd_25$org == 4]
+dd_25$ucdp_reb_vac_5 = 0
+dd_25$ucdp_reb_vac_5[dd_25$org == 1 & dd_25$ucdp_deaths >= 5] = 1
+dd_25$ucdp_reb_vac_all = 0 
+dd_25$ucdp_reb_vac_all[dd_25$org==1] = dd_25$ucdp_deaths[dd_25$org==1]
+
+dd_25 = dd_25 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_25 = left_join(d, dd_25, by = c("base_id", "year", "month"))
+
+dd_25 = dd_25 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+dd_25 = dd_25 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
 
 # 30km
 dd_30 = st_buffer(base, dist = 30000)  # distance is in meters
-dd_30 <- st_join(dd_30, df) %>%
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_30, dd_30) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_30$base_id[intersecting_base_ids]
+
+dd_30 = st_join(dd_30, df) %>%
   as.data.frame() %>%
   select(-geometry)
 
@@ -312,11 +503,208 @@ dd_30 = left_join(d, dd_30, by = c("base_id", "year", "month"))
 dd_30 = dd_30 %>% 
   mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
                 ~replace_na(.x, 0)))
+dd_30 = dd_30 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
+
+### 35km ###
+dd_35 = st_buffer(base, dist = 35000)  # distance is in meters
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_35, dd_35) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_35$base_id[intersecting_base_ids]
+
+dd_35 = st_join(dd_35, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
+
+dd_35 = dd_35 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
+
+dd_35$ucdp_gov_vac_5 = 0
+dd_35$ucdp_gov_vac_5[dd_35$org == 4 & dd_35$ucdp_deaths >= 5] = 1
+dd_35$ucdp_gov_vac_all = 0
+dd_35$ucdp_gov_vac_all[dd_35$org == 4] = dd_35$ucdp_deaths[dd_35$org == 4]
+dd_35$ucdp_reb_vac_5 = 0
+dd_35$ucdp_reb_vac_5[dd_35$org == 1 & dd_35$ucdp_deaths >= 5] = 1
+dd_35$ucdp_reb_vac_all = 0 
+dd_35$ucdp_reb_vac_all[dd_35$org==1] = dd_35$ucdp_deaths[dd_35$org==1]
+
+dd_35 = dd_35 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_35 = left_join(d, dd_35, by = c("base_id", "year", "month"))
+
+dd_35 = dd_35 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+dd_35 = dd_35 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
+
+### 5km ###
+dd_40 = st_buffer(base, dist = 40000)  # distance is in meters
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_40, dd_40) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_40$base_id[intersecting_base_ids]
+
+dd_40 = st_join(dd_40, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
+
+dd_40 = dd_40 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
+
+dd_40$ucdp_gov_vac_5 = 0
+dd_40$ucdp_gov_vac_5[dd_40$org == 4 & dd_40$ucdp_deaths >= 5] = 1
+dd_40$ucdp_gov_vac_all = 0
+dd_40$ucdp_gov_vac_all[dd_40$org == 4] = dd_40$ucdp_deaths[dd_40$org == 4]
+dd_40$ucdp_reb_vac_5 = 0
+dd_40$ucdp_reb_vac_5[dd_40$org == 1 & dd_40$ucdp_deaths >= 5] = 1
+dd_40$ucdp_reb_vac_all = 0 
+dd_40$ucdp_reb_vac_all[dd_40$org==1] = dd_40$ucdp_deaths[dd_40$org==1]
+
+dd_40 = dd_40 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_40 = left_join(d, dd_40, by = c("base_id", "year", "month"))
+
+dd_40 = dd_40 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+dd_40 = dd_40 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
+
+### 45km ###
+dd_45 = st_buffer(base, dist = 45000)  # distance is in meters
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_45, dd_45) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_45$base_id[intersecting_base_ids]
+
+dd_45 = st_join(dd_45, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
+
+dd_45 = dd_45 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
+
+dd_45$ucdp_gov_vac_5 = 0
+dd_45$ucdp_gov_vac_5[dd_45$org == 4 & dd_45$ucdp_deaths >= 5] = 1
+dd_45$ucdp_gov_vac_all = 0
+dd_45$ucdp_gov_vac_all[dd_45$org == 4] = dd_45$ucdp_deaths[dd_45$org == 4]
+dd_45$ucdp_reb_vac_5 = 0
+dd_45$ucdp_reb_vac_5[dd_45$org == 1 & dd_45$ucdp_deaths >= 5] = 1
+dd_45$ucdp_reb_vac_all = 0 
+dd_45$ucdp_reb_vac_all[dd_45$org==1] = dd_45$ucdp_deaths[dd_45$org==1]
+
+dd_45 = dd_45 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_45 = left_join(d, dd_45, by = c("base_id", "year", "month"))
+
+dd_45 = dd_45 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+dd_45 = dd_45 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
+
+### 50km ###
+dd_50 = st_buffer(base, dist = 50000)  # distance is in meters
+## remove any bases that overlap with each other
+# Check for intersections
+intersections = st_intersects(dd_50, dd_50) %>%
+  as.matrix()
+# Get the row and column indices where there are intersections
+indices = which(intersections, arr.ind = TRUE)
+# Filter out self-intersections
+indices = indices[indices[, 1] != indices[, 2], ]
+# Extract unique base_id values that intersect with each other
+intersecting_base_ids = unique(c(indices[, 1], indices[, 2]))
+# Get the base_id values corresponding to the intersecting indices
+intersecting_base_ids_values = dd_50$base_id[intersecting_base_ids]
+
+dd_50 = st_join(dd_50, df) %>%
+  as.data.frame() %>%
+  select(-geometry)
+
+dd_50 = dd_50 %>%
+  group_by(base_id, month, year, org) %>%
+  summarize(ucdp_deaths = sum(ucdp_deaths)) %>%
+  drop_na(org) %>% 
+  ungroup()
+
+dd_50$ucdp_gov_vac_5 = 0
+dd_50$ucdp_gov_vac_5[dd_50$org == 4 & dd_50$ucdp_deaths >= 5] = 1
+dd_50$ucdp_gov_vac_all = 0
+dd_50$ucdp_gov_vac_all[dd_50$org == 4] = dd_50$ucdp_deaths[dd_50$org == 4]
+dd_50$ucdp_reb_vac_5 = 0
+dd_50$ucdp_reb_vac_5[dd_50$org == 1 & dd_50$ucdp_deaths >= 5] = 1
+dd_50$ucdp_reb_vac_all = 0 
+dd_50$ucdp_reb_vac_all[dd_50$org==1] = dd_50$ucdp_deaths[dd_50$org==1]
+
+dd_50 = dd_50 %>%
+  group_by(base_id, year, month) %>%
+  summarize(across(ucdp_gov_vac_5:ucdp_reb_vac_all, sum))
+
+dd_50 = left_join(d, dd_50, by = c("base_id", "year", "month"))
+
+dd_50 = dd_50 %>% 
+  mutate(across(ucdp_gov_vac_5:ucdp_reb_vac_all, 
+                ~replace_na(.x, 0)))
+dd_50 = dd_50 %>%
+  filter(!base_id %in% intersecting_base_ids_values)
+rm(indices, intersections, intersecting_base_ids, intersecting_base_ids_values)
 
 #### Export Data ####
 saveRDS(dd_2, "./data/kunkel_final_2km.RDS")
 saveRDS(dd_5, "./data/kunkel_final_5km.RDS")
 saveRDS(dd_10, "./data/kunkel_final_10km.RDS")
+saveRDS(dd_15, "./data/kunkel_final_15km.RDS")
 saveRDS(dd_20, "./data/kunkel_final_20km.RDS")
+saveRDS(dd_25, "./data/kunkel_final_25km.RDS")
 saveRDS(dd_30, "./data/kunkel_final_30km.RDS")
+saveRDS(dd_35, "./data/kunkel_final_35km.RDS")
+saveRDS(dd_40, "./data/kunkel_final_40km.RDS")
+saveRDS(dd_45, "./data/kunkel_final_45km.RDS")
+saveRDS(dd_50, "./data/kunkel_final_50km.RDS")
 
