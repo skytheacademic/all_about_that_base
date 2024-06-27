@@ -7,13 +7,13 @@
 options(max.print=1000000)
 library(tidyverse); library(janitor); library(geosphere); library(sf); library(lubridate)
 
+rm(list = ls())
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set to source file location
 setwd("../") # back out to main folder
 
 ### set seed
 set.seed(8675309) # hey jenny
 
-rm(list = ls())
 ### read in UNPMM data so I can merge with GEOPKO
 library(readxl)
 unpmm = read_excel("./data/unpmm/UNPMM_V2.0.xlsx") %>%
@@ -74,18 +74,6 @@ dd = left_join(unpmm, geopko, by = c("mission_abbrev" = "mission")) %>%
   na.omit() %>%
   select(-c(ocat01, mission_abbrev))
 rm(unpmm)
-
-#############################################
-
-# need to think through how to code HQs that change and POC that changes
-# do I just drop observations for specific models?
-# do I remove observations when they change to a new number? 
-# what about the unit of comparison for DiD??
-# could probably do this with some version of Zach's loop code for DiD
-
-
-############################################
-
 
 ### create a full grid of base_id-month-years
 all_base_ids = sort(unique(c(dd$base_id)))
